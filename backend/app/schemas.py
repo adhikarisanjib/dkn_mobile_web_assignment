@@ -1,11 +1,11 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 
 from pydantic import BaseModel, computed_field
 from fastapi import File, UploadFile, Form
 
-from models import ArtifactStatus, Region, SystemRole, ArtifactReviewStatus
+from models import ArtifactStatus, Region, SystemRole, ReviewDecision
 
 
 class LoginForm(BaseModel):
@@ -71,14 +71,20 @@ class KnowledgeArtifactResponse(BaseModel):
     title: str
     summary: str
     content: str
-    status: Optional[ArtifactStatus] = ArtifactStatus.DRAFT
-    file: Optional[str] = None
+    status: ArtifactStatus
+    file: Optional[str]
     created_by: UUID
     created_on: datetime
+    review: Optional[ArtifactReviewStatusResponse] = None
 
     @computed_field
     @property
-    def file_url(self) -> str | None:
+    def review_requested(self) -> bool:
+        return self.review is not None
+
+    @computed_field
+    @property
+    def file_url(self) -> Optional[str]:
         if self.file:
             return f"http://localhost:8000/api/files/{self.created_by}/artifacts/{self.file}"
         return None
@@ -87,14 +93,13 @@ class KnowledgeArtifactResponse(BaseModel):
         from_attributes = True
 
 
-
 class ArtifactTagForm(BaseModel):
-    id: UUID
     tag: str
 
 
 class ArtifactTagResponse(ArtifactTagForm):
-    id: UUID 
+    id: UUID
+    artifact_id: UUID
 
     class Config:
         from_attributes = True
@@ -102,32 +107,36 @@ class ArtifactTagResponse(ArtifactTagForm):
 
 class RatingForm(BaseModel):
     artifact_id: UUID
-    rating_value: int
-    comment: Optional[str] = None
+    score: int
 
 
-class RatingResponse(RatingForm):
-    rating_id: UUID
+class RatingResponse(BaseModel):
+    id: UUID
+    artifact_id: UUID
     user_id: UUID
-    rated_on: str
+    score: int
+    rated_on: datetime
 
     class Config:
         from_attributes = True
 
 
 class ArtifactReviewStatusForm(BaseModel):
-    artifact_id: UUID
+    decision: ReviewDecision
     comments: Optional[str] = None
 
 
-class ArtifactReviewStatusResponse(ArtifactReviewStatusForm):
-    review_id: UUID
-    decision: Optional[str] = None
-    reviewed_by: Optional[str] = None
-    submitted_on: str
+class ArtifactReviewStatusResponse(BaseModel):
+    id: UUID
+    artifact_id: UUID
+    decision: ReviewDecision
+    comments: Optional[str] = None
+    reviewed_by: Optional[UUID] = None
+    submitted_on: datetime
 
     class Config:
         from_attributes = True
+
 
 
 class CommunityForm(BaseModel):
@@ -136,8 +145,17 @@ class CommunityForm(BaseModel):
 
 
 class CommunityResponse(CommunityForm):
-    community_id: UUID
+    id: UUID
 
     class Config:
         from_attributes = True
-        
+
+
+class CommunityFollowResponse(BaseModel):
+    id: UUID
+    community_id: UUID
+    user_id: UUID
+    followed_on: datetime
+
+    class Config:
+        from_attributes = True

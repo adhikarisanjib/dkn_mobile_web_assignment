@@ -3,11 +3,14 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from sqlalchemy.orm import joinedload
 
 from database import get_db
 from settings import settings
 from models import (
+    ReviewDecision,
+    ArtifactStatus,
     ArtifactReviewStatus,
     SystemRole,
     User,
@@ -26,7 +29,6 @@ from schemas import (
     RatingForm,
     RatingResponse,
     ArtifactReviewStatusForm,
-    ArtifactReviewStatusResponse,
     CommunityForm,
     CommunityResponse
 )
@@ -40,22 +42,26 @@ from auth import (
 )
 from settings import settings
 
+
 router = APIRouter(prefix="/api")
 
 
 @router.get("/files/{user_id}/{file_model_type}/{filename}")
+
 async def get_file(user_id: str, file_model_type: str, filename: str):
+
     file_path = os.path.join(settings.MEDIA_DIR, user_id, file_model_type, filename)
     if os.path.exists(file_path):
         return FileResponse(path=file_path, filename=filename)
-    return {"error": "File not found", "status_code": 404}
+    
+    return Response(content="File not found", status_code=404)
 
 
 @router.post("/register", response_model=UserResponse)
 async def register(data: UserForm, db=Depends(get_db)):
 
     if db.query(User).filter(User.email == data.email).first():
-        return {"error": "Email already registered", "status_code": 400}
+        return Response(content="Email already registered", status_code=400)
 
     new_user = User(
         name=data.name,
@@ -77,7 +83,7 @@ async def login(data: LoginForm, db=Depends(get_db)):
 
     user = authenticate_user(db, data.email, data.password)
     if not user:
-        return {"error": "Invalid credentials", "status_code": 401}
+        return Response(content="Invalid credentials", status_code=401)
 
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = create_refresh_token(data={"sub": str(user.id)})
@@ -109,9 +115,18 @@ async def get_profile(current_user: User = Depends(auth_user)):
     return current_user
 
 
+@router.get("/dashboard")
+async def get_dashboard(current_user: User = Depends(auth_user)):
+    artifacts = current_user.artifacts
+    return {
+        "user": current_user,
+        "artifacts": artifacts,
+    }
+
+
 @router.get("/artifacts", response_model=list[KnowledgeArtifactResponse])
 async def list_artifacts(db=Depends(get_db)):
-    artifacts = db.query(KnowledgeArtifact).all()
+    artifacts = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.status == ArtifactStatus.PUBLISHED).all()
     return artifacts
 
 
@@ -120,7 +135,7 @@ async def list_my_artifacts(
     current_user: User = Depends(auth_user),
     db=Depends(get_db)
 ):
-    artifacts = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.created_by == current_user.id).all()
+    artifacts = db.query(KnowledgeArtifact).options(joinedload(KnowledgeArtifact.review)).filter(KnowledgeArtifact.created_by == current_user.id).all()
     return artifacts
 
 
@@ -154,30 +169,35 @@ async def create_artifact(
         return new_artifact
     
     except Exception as e:
-        return {"error": str(e)}
+        return Response(content=str(e), status_code=500)
     
 
 @router.get("/artifacts/{artifact_id}", response_model=KnowledgeArtifactResponse)
-async def get_artifact(artifact_id: str, db=Depends(get_db)):
-    artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == uuid.UUID(artifact_id)).first()
+async def get_artifact(artifact_id: uuid.UUID, db=Depends(get_db)):
+    artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == artifact_id).first()
+    review = db.query(ArtifactReviewStatus).filter(ArtifactReviewStatus.artifact_id == artifact_id).first()
+    if review:
+        artifact.review_requested = True
+        artifact.review_status = review.decision
+            
     if not artifact:
-        return {"error": "Artifact not found", "status_code": 404}
+        return Response(content="Artifact not found", status_code=404)
     return artifact
     
 
 @router.put("/artifacts/{artifact_id}", response_model=KnowledgeArtifactResponse)
 async def update_artifact(
-    artifact_id: str,
+    artifact_id: uuid.UUID,
     data: KnowledgeArtifactForm = Depends(KnowledgeArtifactForm.as_form),
     current_user: User = Depends(auth_user),
     db=Depends(get_db)
 ):
     artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == artifact_id).first()
     if not artifact:
-        return {"error": "Artifact not found", "status_code": 404}
+        return Response(content="Artifact not found", status_code=404)
 
     if artifact.created_by != current_user.id:
-        return {"error": "Unauthorized", "status_code": 403}
+        return Response(content="Unauthorized", status_code=403)
 
     artifact.title = data.title
     artifact.content = data.content
@@ -206,32 +226,127 @@ async def update_artifact(
 
 @router.delete("/artifacts/{artifact_id}")
 async def delete_artifact(
-    artifact_id: str,
+    artifact_id: uuid.UUID,
     current_user: User = Depends(auth_user),
     db=Depends(get_db)
 ):
     artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == artifact_id).first()
     if not artifact:
-        return {"error": "Artifact not found", "status_code": 404}
+        return Response(content="Artifact not found", status_code=404)
 
     if artifact.created_by != current_user.id:
-        return {"error": "Unauthorized", "status_code": 403}
+        return Response(content="Unauthorized", status_code=403)
 
     db.delete(artifact)
     db.commit()
 
-    return {"message": "Artifact deleted successfully"}
+    return Response(content="Artifact deleted successfully", status_code=200)
+
+
+@router.post("/publish-artifact/{artifact_id}")
+async def publish_artifact(
+    artifact_id: uuid.UUID,
+    current_user: User = Depends(auth_user),
+    db=Depends(get_db)
+):
+    artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == artifact_id).first()
+    if not artifact:
+        return Response(content="Artifact not found", status_code=404)
+    
+    if artifact.created_by != current_user.id:
+        return Response(content="Unauthorized", status_code=403)
+
+    if artifact.status == 'PUBLISHED':
+        return Response(content="Artifact is already published", status_code=400)
+
+    artifact.status = 'PUBLISHED'
+    artifact.last_updated = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(artifact)
+
+    return Response(content="Artifact published successfully", status_code=200)
+
+
+@router.post("/request-review/{artifact_id}")
+async def request_artifact_review(
+    artifact_id: uuid.UUID,
+    current_user: User = Depends(auth_user),
+    db=Depends(get_db)
+):
+    artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == artifact_id).first()
+    if not artifact:
+        return Response(content="Artifact not found", status_code=404)
+    
+    if artifact.created_by != current_user.id:
+        return Response(content="Unauthorized", status_code=403)
+
+    existing_review = db.query(ArtifactReviewStatus).filter(ArtifactReviewStatus.artifact_id == artifact_id).all()
+    if existing_review:
+        return Response(content="Review already requested for this artifact", status_code=400)
+
+    new_review_request = ArtifactReviewStatus(
+        artifact_id=artifact_id,
+    )
+
+    db.add(new_review_request)
+    db.commit()
+    db.refresh(new_review_request)
+
+    return Response(content="Review requested successfully", status_code=200)
+
+
+@router.get("/review-requests", response_model=list[KnowledgeArtifactResponse])
+async def list_review_requests(
+    current_user: User = Depends(auth_user),
+    db=Depends(get_db)
+):
+    if current_user.role not in [SystemRole.KNOWLEDGE_CHAMPION, SystemRole.ADMIN]:
+        return Response(content="Permission denied. Only Knowledge Champions and Admins can view review requests.", status_code=403)
+
+    review_requests = db.query(KnowledgeArtifact).join(ArtifactReviewStatus).options(joinedload(KnowledgeArtifact.review)).filter(ArtifactReviewStatus.decision != ReviewDecision.APPROVED).all()
+    return review_requests
+
+
+@router.post("/review-artifact/{artifact_id}")
+async def review_artifact(
+    artifact_id: uuid.UUID,
+    data: ArtifactReviewStatusForm,
+    current_user: User = Depends(auth_user),
+    db=Depends(get_db)
+):
+    artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == artifact_id).first()
+    if not artifact:
+        return Response(content="Artifact not found", status_code=404)
+    
+    review = db.query(ArtifactReviewStatus).filter(ArtifactReviewStatus.artifact_id == artifact_id).first()
+    if not review:
+        return Response(content="No review request found for this artifact", status_code=404)
+    
+    if not current_user.role in [SystemRole.KNOWLEDGE_CHAMPION, SystemRole.ADMIN]:
+        return Response(content="Permission denied. Only Knowledge Champions and Admins can review artifacts.", status_code=403)
+
+    review.decision = data.decision
+    print(f"Review decision: {data.decision}, comments: {data.comments}")
+    review.comments = data.comments
+    review.reviewed_by = current_user.id
+
+    db.commit()
+    db.refresh(review)
+
+    return Response(content="Artifact reviewed successfully", status_code=200)
+
 
 @router.post("/rate-artifact/{artifact_id}", response_model=RatingResponse)
 async def rate_artifact(
-    artifact_id: str,
+    artifact_id: uuid.UUID,
     data: RatingForm,
     current_user: User = Depends(auth_user),
     db=Depends(get_db)
 ):
     artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == artifact_id).first()
     if not artifact:
-        return {"error": "Artifact not found", "status_code": 404}
+        return Response(content="Artifact not found", status_code=404)
 
     new_rating = Rating(
         artifact_id=artifact_id,
@@ -247,32 +362,6 @@ async def rate_artifact(
     return new_rating
 
 
-@router.post("/review-artifact/{artifact_id}", response_model=ArtifactReviewStatusResponse)
-async def review_artifact(
-    artifact_id: str,
-    data: ArtifactReviewStatusForm,
-    current_user: User = Depends(auth_user),
-    db=Depends(get_db)
-):
-    artifact = db.query(KnowledgeArtifact).filter(KnowledgeArtifact.id == artifact_id).first()
-    if not artifact:
-        return {"error": "Artifact not found", "status_code": 404}
-    
-    if not current_user.role in [SystemRole.KNOWLEDGE_CHAMPION, SystemRole.ADMIN]:
-        return {"error": "Permission denied. Only Knowledge Champions and Admins can review artifacts.", "status_code": 403}
-
-    new_review = ArtifactReviewStatus(
-        artifact_id=artifact_id,
-        reviewed_by=current_user.id,
-        decision=None,  # Decision can be set later
-    )
-
-    db.add(new_review)
-    db.commit()
-    db.refresh(new_review)
-
-    return new_review
-
 @router.post("/communities", response_model=CommunityResponse)
 async def create_community(
     data: CommunityForm,
@@ -280,7 +369,7 @@ async def create_community(
     db=Depends(get_db)
 ):
     if current_user.role != SystemRole.ADMIN:
-        return {"error": "Permission denied. Only Admins can create communities.", "status_code": 403}
+        return Response(content="Permission denied. Only Admins can create communities.", status_code=403)
 
     new_community = Community(
         name=data.name,
@@ -299,21 +388,22 @@ async def list_communities(db=Depends(get_db)):
     communities = db.query(Community).all()
     return communities
 
+
 @router.post("/communities/{community_id}/follow")
 async def follow_community(
-    community_id: str,
+    community_id: uuid.UUID,
     current_user: User = Depends(auth_user),
     db=Depends(get_db)
 ):
     community = db.query(Community).filter(Community.id == community_id).first()
     if not community:
-        return {"error": "Community not found", "status_code": 404}
+        return Response(content="Community not found", status_code=404)
 
     if db.query(CommunityFollow).filter(
         CommunityFollow.community_id == community_id,
         CommunityFollow.user_id == current_user.id
     ).first():
-        return {"error": "Already following this community", "status_code": 400}
+        return Response(content="Already following this community", status_code=400)
 
     new_follow = CommunityFollow(
         community_id=community_id,
@@ -322,6 +412,7 @@ async def follow_community(
 
     db.add(new_follow)
     db.commit()
+    db.refresh(new_follow)
 
-    return {"message": "Successfully followed the community"}
+    return Response(content="Successfully followed the community", status_code=200)
 

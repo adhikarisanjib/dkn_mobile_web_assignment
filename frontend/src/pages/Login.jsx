@@ -43,13 +43,12 @@ const Login = () => {
     // Redirect to home if already logged in
     useEffect(() => {
         const fetchToken = async () => {
-            const token = getAccessToken();
+            const token = await getAccessToken();
             setAccessToken(token);
         };
         fetchToken();
         if (accessToken) {
-            toast.info("You are already logged in.");
-            
+            toast.info("You are already logged in.");   
         }
     }, [accessToken, navigate]);
 

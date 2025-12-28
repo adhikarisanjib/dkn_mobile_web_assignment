@@ -66,7 +66,7 @@ export const AuthProvider = ({ children }) => {
                     const response = await axios.post("http://localhost:8000/api/refresh-token", {
                         'refresh_token': refreshToken
                     });
-                    console.log("Access token refreshed:", response.data);
+                    // console.log("Access token refreshed:", response.data);
                     const { access_token } = response.data;
                     saveAccessToken(access_token);
                     return access_token;

@@ -14,6 +14,7 @@ const ArtifactStatus = {
 }
 
 const ReviewDecision = {
+    "PENDING": "PENDING",
     "SUBMITTED": "SUBMITTED",
     "APPROVED": "APPROVED",
     "CHANGES REQUESTED": "CHANGES_REQUESTED"

@@ -35,7 +35,12 @@ cd backend
 uv sync
 ```
 
-#### 4. Start Development Server
+#### 4. Activate Virtual Environment
+```bash
+source .venv/bin/activate
+```
+
+#### 5. Start Development Server
 
 ```bash
 uv run python3 app/main.py

@@ -25,6 +25,7 @@ const PersonalArtifacts = () => {
                 setLoading(false);
             } catch (error) {
                 console.error("Error fetching artifacts:", error);
+                setLoading(false);
             }
         };
 
@@ -40,7 +41,7 @@ const PersonalArtifacts = () => {
             {loading ? (
                 <p>Loading...</p>
             ) : (
-                <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="w-full max-w-4xl flex justify-center flex-wrap gap-4">
                     {artifacts.length > 0 ? artifacts.map((artifact) => (
                         <ArtifactCard
                             key={artifact.id}

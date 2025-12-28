@@ -7,7 +7,8 @@ import { toast } from "react-toastify";
 
 import { useTheme } from "../context/ThemeProvider";
 import { useAuth } from "../context/AuthProvider";
-
+import { useUser } from "../context/UserProvider";
+import { SystemRole } from "../types";
 
 const Navbar = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -15,6 +16,7 @@ const Navbar = () => {
     
     const {theme, toggleTheme} = useTheme();
     const { clearTokens, isAuthenticated } = useAuth();
+    const { user } = useUser();
 
     const toggleMenu = () => {
         setIsOpen(!isOpen);
@@ -63,14 +65,25 @@ const Navbar = () => {
                     <NavLink to="/" className="text-gray-800 hover:text-gray-600 dark:text-gray-200 dark:hover:text-gray-400">
                         Home
                     </NavLink>
+                    <NavLink to="/artifacts" className="text-gray-800 hover:text-gray-600 dark:text-gray-200 dark:hover:text-gray-400">
+                        Database
+                    </NavLink>
                     {isAuthenticated() && (
+                        <>
+                        <NavLink to="/dashboard" className="text-gray-800 hover:text-gray-600 dark:text-gray-200 dark:hover:text-gray-400">
+                            Dashboard
+                        </NavLink>
                         <NavLink to="/create-artifact" className="text-gray-800 hover:text-gray-600 dark:text-gray-200 dark:hover:text-gray-400">
                             Create Artifact
                         </NavLink>
-                    )}
-                    {isAuthenticated() && (
                         <NavLink to="/personal-artifacts" className="text-gray-800 hover:text-gray-600 dark:text-gray-200 dark:hover:text-gray-400">
                             My Artifacts
+                        </NavLink>
+                        </>
+                    )}
+                    {user && user.role === SystemRole.ADMIN && (
+                        <NavLink to="/artifact-review-requests" className="text-gray-800 hover:text-gray-600 dark:text-gray-200 dark:hover:text-gray-400">
+                            Review Requests
                         </NavLink>
                     )}
                     {
@@ -114,13 +127,27 @@ const Navbar = () => {
 
             </div>
 
-            {/* Mobile Menu */}
             {isOpen && (
                 <div className="absolute top-16 left-0 w-full bg-white dark:bg-gray-950 shadow-lg rounded-lg p-4 md:hidden">
                     <nav className="flex flex-col items-center space-y-2">
                         <NavLink to="/" className="text-gray-800 dark:text-gray-200 hover:text-gray-600 dark:hover:text-gray-400">
                             Home
                         </NavLink>
+                        {isAuthenticated() && (
+                            <>
+                            <NavLink to="/create-artifact" className="text-gray-800 dark:text-gray-200 hover:text-gray-600 dark:hover:text-gray-400">
+                                Create Artifact
+                            </NavLink>
+                            <NavLink to="/personal-artifacts" className="text-gray-800 dark:text-gray-200 hover:text-gray-600 dark:hover:text-gray-400">
+                                My Artifacts
+                            </NavLink>
+                            </>
+                        )}
+                        {user && user.role === SystemRole.ADMIN && (
+                            <NavLink to="/artifact-review-requests" className="text-gray-800 dark:text-gray-200 hover:text-gray-600 dark:hover:text-gray-400">
+                                Review Requests
+                            </NavLink>
+                        )}
                         {
                             isAuthenticated() ?
                             (<button onClick={handleLogout} className="text-gray-800 dark:text-gray-200 hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer">

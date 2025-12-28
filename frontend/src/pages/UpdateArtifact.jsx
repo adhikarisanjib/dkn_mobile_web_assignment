@@ -31,7 +31,6 @@ const UpdateArtifact = () => {
                     },
                 });
                 const artifact = response.data;
-                console.log("Fetched artifact:", artifact);
                 if (artifact) {
                     setTitle(artifact.title);
                     setContent(artifact.content);
